@@ -7,6 +7,11 @@ Give one to your parents. Point it at a collection of family photos. When you
 add new pictures, every frame updates itself. When something goes wrong at
 their house, you diagnose it from yours.
 
+**▶ Live demo:** [myslideshow.craig0409.com/slideshow/](https://myslideshow.craig0409.com/slideshow/)
+— exactly what a frame displays (press F11 for the full effect). Try
+[`?group=Family%20Moments&delay=5000`](https://myslideshow.craig0409.com/slideshow/?group=Family%20Moments&delay=5000)
+to see collection filtering and timing parameters.
+
 ```
 ┌──────────────┐  heartbeat every 45s    ┌───────────────────────────┐
 │ Raspberry Pi │ ──────────────────────► │   your Linux VM           │
