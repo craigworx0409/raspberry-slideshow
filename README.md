@@ -105,3 +105,15 @@ they live, and summarized in [docs/06-operate.md](docs/06-operate.md):
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+## ☕ Tip jar
+
+If you appreciate this project, send me a tip! Click a QR (or scan it from
+your phone):
+
+| PayPal | Cash App | Venmo |
+|:---:|:---:|:---:|
+| [![PayPal QR](docs/paypal.jpg)](https://paypal.me/Craig0409) | [![Cash App QR](docs/cashapp.jpg)](https://cash.app/$Craig0409) | [![Venmo QR](docs/venmo.jpg)](https://venmo.com/Craig0409vt) |
+| [paypal.me/Craig0409](https://paypal.me/Craig0409) | [cash.app/$Craig0409](https://cash.app/$Craig0409) | [venmo.com/Craig0409vt](https://venmo.com/Craig0409vt) |
