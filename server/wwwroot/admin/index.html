@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slideshow Hub — Admin</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; }
+  .card { border: 1px solid #8884; border-radius: 10px; padding: 1rem; margin: 1rem 0; }
+  .row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .5rem; }
+  .name { font-weight: 600; font-size: 1.05rem; }
+  .id { opacity: .6; font-size: .8rem; }
+  .badge { font-size: .75rem; padding: .15rem .5rem; border-radius: 99px; color: #fff; }
+  .online { background: #1a9e4b; }
+  .offline { background: #c33; }
+  .url { font-size: .85rem; word-break: break-all; opacity: .85; margin: .5rem 0; }
+  .stale { color: #d90; }
+  .owner { font-size: .85rem; }
+  input { padding: .45rem; border-radius: 6px; border: 1px solid #8886; }
+  input[type=url], input[type=email], input[type=text] { flex: 1; min-width: 160px; }
+  button { padding: .45rem .9rem; border-radius: 6px; border: 1px solid #8886; background: #8881; cursor: pointer; }
+  button:hover { background: #8883; }
+  button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .meta { font-size: .75rem; opacity: .6; margin-top: .5rem; }
+  .health { font-size: .78rem; opacity: .8; margin-top: .5rem; font-variant-numeric: tabular-nums; }
+  .health .warn { color: #d90; font-weight: 600; }
+  .health .bad { color: #c33; font-weight: 600; }
+  .spark-wrap { margin-top: .4rem; }
+  .spark-toggle, .spark-range a { font-size: .75rem; cursor: pointer; text-decoration: underline; opacity: .7; }
+  .spark-range { margin-left: .6rem; }
+  .spark-range a { margin-right: .4rem; }
+  .spark { margin-top: .3rem; }
+  .spark svg { width: 100%; height: 54px; display: block; }
+  .spark .lbl { font-size: .7rem; opacity: .6; }
+  #empty { opacity: .6; }
+</style>
+</head>
+<body>
+<h1>📺 Slideshow Hub — Admin</h1>
+
+<h2>Devices</h2>
+<p id="empty">Waiting for devices to check in&hellip;</p>
+<div id="devices"></div>
+
+<h2>Images</h2>
+<p>Photos and collections are managed in the <a href="/library/">Image Library</a>.</p>
+
+<script>
+const $devices = document.getElementById('devices');
+const $empty = document.getElementById('empty');
+
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function ago(iso) {
+  if (!iso) return 'never';
+  const s = Math.round((Date.now() - new Date(iso)) / 1000);
+  if (s < 90) return s + 's ago';
+  if (s < 5400) return Math.round(s / 60) + 'm ago';
+  return Math.round(s / 3600) + 'h ago';
+}
+
+function fmtUptime(s) {
+  if (s == null) return '';
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+
+// Update helpers that only touch the DOM when content actually changed, so
+// polling never disturbs focus, selections, or half-typed input values.
+function setText(id, text) {
+  const el = document.getElementById(id);
+  if (el && el.textContent !== text) el.textContent = text;
+}
+function setHTML(id, html) {
+  const el = document.getElementById(id);
+  if (el && el.innerHTML !== html) el.innerHTML = html;
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    let msg = r.status;
+    try { msg = (await r.json()).error ?? r.status; } catch {}
+    alert(`${path} failed: ${msg}`);
+    throw new Error(msg);
+  }
+  return r;
+}
+
+const post = (path, body) => api(path, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+});
+
+async function setUrl(id) {
+  const url = document.getElementById('url-' + id).value.trim();
+  if (!url) return;
+  await post(`/api/devices/${id}/url`, { url });
+  document.getElementById('url-' + id).value = '';
+  refresh();
+}
+
+async function sendCommand(id, type) {
+  if (type === 'reboot' && !confirm('Reboot this device?')) return;
+  if (type === 'poweroff' && !confirm(
+    'Shut this device down gracefully?\n\n' +
+    'IMPORTANT: there is no remote power-on. Someone at the device will have ' +
+    'to unplug and replug it to bring it back.')) return;
+  if (type === 'forget-wifi' && !confirm(
+    'Forget ALL saved Wi-Fi networks on this device?\n\n' +
+    'It will go OFFLINE and broadcast its "slideshow-<nn>" setup hotspot ' +
+    'until someone joins it from a phone and picks a network. ' +
+    'This is how you hand the device to a gift recipient.')) return;
+  await post(`/api/devices/${id}/command`, { type });
+  refresh();
+}
+
+async function assignOwner(id) {
+  const email = document.getElementById('owner-email-' + id).value.trim();
+  const password = document.getElementById('owner-pw-' + id).value;
+  if (!email) return;
+  await post(`/api/devices/${id}/owner`, { email, password: password || null });
+  document.getElementById('owner-pw-' + id).value = '';
+  refresh();
+}
+
+async function unassignOwner(id) {
+  if (!confirm('Remove this device\'s owner?')) return;
+  await api(`/api/devices/${id}/owner`, { method: 'DELETE' });
+  refresh();
+}
+
+async function forget(id) {
+  if (!confirm('Forget this device? It will reappear if it checks in again.')) return;
+  await api(`/api/devices/${id}`, { method: 'DELETE' });
+  const card = document.getElementById('card-' + id);
+  if (card) card.remove();
+  refresh();
+}
+
+
+
+// Created once per device; inputs live here and are never re-rendered.
+function createCard(d) {
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.id = 'card-' + d.id;
+  div.innerHTML = `
+    <div class="row" style="margin-top:0">
+      <span class="name" id="name-${d.id}"></span>
+      <span class="id" id="idline-${d.id}"></span>
+      <span class="badge" id="badge-${d.id}"></span>
+    </div>
+    <div class="url" id="showing-${d.id}"></div>
+    <div class="owner" id="ownerline-${d.id}"></div>
+    <div class="row">
+      <input type="email" id="owner-email-${d.id}" placeholder="recipient@email.com" value="${esc(d.ownerEmail ?? '')}">
+      <input type="text" id="owner-pw-${d.id}" placeholder="initial password (blank = keep)">
+      <button id="ownerbtn-${d.id}" onclick="assignOwner('${d.id}')"></button>
+    </div>
+    <div class="row">
+      <input type="url" id="url-${d.id}" placeholder="https://slideshow-url.com"
+             onkeydown="if(event.key==='Enter')setUrl('${d.id}')">
+      <button class="primary" onclick="setUrl('${d.id}')">Show this URL</button>
+    </div>
+    <div class="row">
+      <button onclick="sendCommand('${d.id}','reload')">Reload</button>
+      <button onclick="sendCommand('${d.id}','reboot')">Reboot</button>
+      <button onclick="sendCommand('${d.id}','poweroff')">Power off</button>
+      <button onclick="sendCommand('${d.id}','forget-wifi')">Forget Wi-Fi</button>
+      <button onclick="forget('${d.id}')">Forget device</button>
+    </div>
+    <div class="health" id="health-${d.id}"></div>
+    <div class="meta" id="meta-${d.id}"></div>
+    <div class="spark-wrap">
+      <a class="spark-toggle" onclick="toggleSpark('${d.id}')" id="sparklink-${d.id}">📶 signal history</a>
+      <span class="spark-range hidden" id="sparkrange-${d.id}">
+        <a onclick="setSparkHours('${d.id}',1)">1h</a>
+        <a onclick="setSparkHours('${d.id}',6)">6h</a>
+        <a onclick="setSparkHours('${d.id}',24)">24h</a>
+        <a onclick="setSparkHours('${d.id}',168)">7d</a>
+      </span>
+      <div class="spark hidden" id="spark-${d.id}"></div>
+    </div>`;
+  $devices.appendChild(div);
+}
+
+// Refreshes only display fragments — never the inputs.
+function updateCard(d) {
+  const online = d.lastSeen && (Date.now() - new Date(d.lastSeen)) < 120000;
+  const pendingNav = d.desiredUrl && d.desiredUrl !== d.currentUrl;
+
+  setText('name-' + d.id, d.name ?? d.id);
+  setText('idline-' + d.id, d.id + (d.ip ? ' · ' + d.ip : ''));
+  const badge = document.getElementById('badge-' + d.id);
+  const badgeClass = 'badge ' + (online ? 'online' : 'offline');
+  if (badge.className !== badgeClass) badge.className = badgeClass;
+  setText('badge-' + d.id, online ? 'online' : 'offline');
+
+  setHTML('showing-' + d.id, `Showing: ${esc(d.currentUrl ?? '—')}` +
+    (pendingNav ? `<div class="stale">Queued: ${esc(d.desiredUrl)} (applies within ~1 min)</div>` : '') +
+    (d.pendingCommands ? `<div class="stale">${d.pendingCommands} command(s) queued</div>` : ''));
+
+  setHTML('ownerline-' + d.id, 'Owner: ' + (d.ownerEmail
+    ? `<b>${esc(d.ownerEmail)}</b> <button onclick="unassignOwner('${d.id}')">Remove</button>`
+    : '<i>unassigned</i>'));
+  setText('ownerbtn-' + d.id, d.ownerEmail ? 'Update owner' : 'Assign owner');
+
+  setHTML('health-' + d.id, healthLine(d.health));
+
+  setText('meta-' + d.id, `Last seen ${ago(d.lastSeen)}` +
+    (d.uptimeSecs != null ? ' · up ' + fmtUptime(d.uptimeSecs) : ''));
+}
+
+// Signal-history sparkline. Open/closed state and range live here, not in the
+// device data, so the 10s poll never collapses a graph you are reading.
+const sparkOpen = {};   // deviceId -> hours, or undefined when closed
+
+function toggleSpark(id) {
+  if (sparkOpen[id]) {
+    delete sparkOpen[id];
+    document.getElementById('spark-' + id).classList.add('hidden');
+    document.getElementById('sparkrange-' + id).classList.add('hidden');
+  } else {
+    sparkOpen[id] = 6;
+    document.getElementById('spark-' + id).classList.remove('hidden');
+    document.getElementById('sparkrange-' + id).classList.remove('hidden');
+    drawSpark(id);
+  }
+}
+
+function setSparkHours(id, h) { sparkOpen[id] = h; drawSpark(id); }
+
+async function drawSpark(id) {
+  const hours = sparkOpen[id];
+  if (!hours) return;
+  const el = document.getElementById('spark-' + id);
+  let data;
+  try {
+    data = await (await fetch(`/api/devices/${id}/history?hours=${hours}`)).json();
+  } catch { return; }
+  if (!sparkOpen[id]) return;                       // closed while loading
+
+  const pts = data.points.filter(p => p.wifiDbm != null);
+  if (pts.length < 2) {
+    el.innerHTML = '<span class="lbl">not enough samples yet — check back in a few minutes</span>';
+    return;
+  }
+  const vals = pts.map(p => p.wifiDbm);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  // Pad the scale so a flat line sits mid-box rather than on an edge.
+  const min = Math.min(lo - 2, -90), max = Math.max(hi + 2, -30);
+  const W = 600, H = 54;
+  const x = i => (i / (pts.length - 1)) * W;
+  const y = v => H - ((v - min) / (max - min)) * H;
+  const path = vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  // -70 dBm: below this, dropouts get likely.
+  const warnY = y(-70).toFixed(1);
+  const first = new Date(pts[0].at), last = new Date(pts[pts.length - 1].at);
+  const fmt = t => t.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+
+  el.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <line x1="0" y1="${warnY}" x2="${W}" y2="${warnY}"
+            stroke="#d90" stroke-width="1" stroke-dasharray="4 4" opacity=".6"/>
+      <path d="${path}" fill="none" stroke="#2563eb" stroke-width="1.5"
+            vector-effect="non-scaling-stroke"/>
+    </svg>
+    <span class="lbl">now ${vals[vals.length - 1]} · best ${hi} · worst ${lo} dBm ·
+      ${pts.length} samples · ${fmt(first)}–${fmt(last)} · dashed line = -70 (weak)</span>`;
+}
+
+// Vitals, with the two remote failure modes called out: a flaky power supply
+// (under-voltage -> SD corruption) and memory pressure (the stall signature).
+function healthLine(h) {
+  if (!h) return '';
+  const bits = [];
+  if (h.memAvailMb != null) bits.push(`free ${h.memAvailMb}M`);
+  if (h.swapUsedMb != null) {
+    const cls = h.swapUsedMb >= 250 ? 'bad' : h.swapUsedMb >= 200 ? 'warn' : '';
+    bits.push(`swap <span class="${cls}">${h.swapUsedMb}M</span>`);
+  }
+  if (h.load1 != null) bits.push(`load ${h.load1.toFixed(2)}`);
+  if (h.tempC != null) {
+    const cls = h.tempC >= 80 ? 'bad' : h.tempC >= 70 ? 'warn' : '';
+    bits.push(`<span class="${cls}">${h.tempC}°C</span>`);
+  }
+  if (h.wifiDbm != null) {
+    const cls = h.wifiDbm <= -80 ? 'bad' : h.wifiDbm <= -70 ? 'warn' : '';
+    bits.push(`wifi <span class="${cls}">${h.wifiDbm}dBm</span>`);
+  }
+  if (h.browserProcs != null) {
+    const cls = h.browserProcs < 3 ? 'bad' : '';
+    bits.push(`browser <span class="${cls}">${h.browserProcs}p</span>`);
+  }
+  if (h.diskUsedPct != null) {
+    const cls = h.diskUsedPct >= 90 ? 'bad' : h.diskUsedPct >= 80 ? 'warn' : '';
+    bits.push(`disk <span class="${cls}">${h.diskUsedPct}%</span>`);
+  }
+  if (h.throttled) {
+    const v = parseInt(h.throttled, 16);
+    if (!isNaN(v)) {
+      if (v & 0x1) bits.push('<span class="bad">UNDER-VOLTAGE NOW</span>');
+      else if (v & 0x10000) bits.push('<span class="warn">under-voltage seen</span>');
+    }
+  }
+  return bits.join(' · ');
+}
+
+async function refresh() {
+  const devices = await (await fetch('/api/devices')).json();
+
+  $empty.style.display = devices.length ? 'none' : '';
+  const present = new Set(devices.map(d => d.id));
+  for (const card of [...$devices.children])
+    if (!present.has(card.id.replace('card-', ''))) card.remove();
+  for (const d of devices) {
+    if (!document.getElementById('card-' + d.id)) createCard(d);
+    updateCard(d);
+    if (sparkOpen[d.id]) drawSpark(d.id);   // keep an open graph live
+  }
+
+}
+
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>

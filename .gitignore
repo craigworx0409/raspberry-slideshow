@@ -1,0 +1,7 @@
+server/bin/
+server/obj/
+*.db
+*.db-*
+publish-linux/
+server/media/
+server/slideshow.db

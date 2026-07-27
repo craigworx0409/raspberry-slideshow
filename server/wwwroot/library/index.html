@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slideshow — Image Library</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; }
+  .card { border: 1px solid #8884; border-radius: 10px; padding: 1rem; margin: 1rem 0; }
+  .row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .5rem; }
+  input, select { padding: .45rem; border-radius: 6px; border: 1px solid #8886; }
+  input[type=text], input[type=url] { flex: 1; min-width: 160px; }
+  button { padding: .45rem .9rem; border-radius: 6px; border: 1px solid #8886; background: #8881; cursor: pointer; }
+  button:hover { background: #8883; }
+  button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .chip { display: inline-block; font-size: .75rem; border: 1px solid #8886; border-radius: 99px;
+          padding: .1rem .6rem; margin: .15rem .15rem 0 0; cursor: pointer; user-select: none; }
+  .chip.on { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: .8rem; margin-top: 1rem; }
+  .tile { border: 1px solid #8884; border-radius: 10px; overflow: hidden; }
+  .tile img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; background: #0003; }
+  .tile .body { padding: .5rem; font-size: .75rem; }
+  .tile .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .tags { min-height: 1.4rem; margin: .25rem 0; }
+  .tile .tag { display: inline-block; background: #8882; border-radius: 99px; padding: 0 .5rem; margin-right: .2rem; }
+  .muted { opacity: .65; font-size: .85rem; }
+  .msg { min-height: 1.2rem; margin-top: .5rem; opacity: .8; }
+  #drop { border: 2px dashed #8886; border-radius: 10px; padding: 1.6rem; text-align: center; opacity: .8; cursor: pointer; }
+  #drop.over { border-color: #2563eb; background: #2563eb11; }
+  nav a { margin-right: 1rem; }
+</style>
+</head>
+<body>
+<h1>🖼️ Image Library</h1>
+<nav><a href="/admin/">← Device admin</a><a href="/slideshow/" target="_blank">Open slideshow ↗</a></nav>
+
+<h2>Collections</h2>
+<div class="card">
+  <div id="collections" class="row" style="margin-top:0"></div>
+  <div class="row">
+    <input type="text" id="new-collection" placeholder="New collection name (no commas)"
+           onkeydown="if(event.key==='Enter')addCollection()">
+    <button class="primary" onclick="addCollection()">Add collection</button>
+  </div>
+  <p class="muted">A frame shows one or more collections via
+    <code>/slideshow/?group=Name</code> or <code>?group=A,B</code> — no group means everything.</p>
+</div>
+
+<h2>Add images</h2>
+<div class="card">
+  <p class="muted" style="margin-top:0">Tag new images with collections (optional):</p>
+  <div id="upload-tags"></div>
+  <div id="drop" style="margin-top:.8rem">Drop image files here, or click to choose.<br>
+    <span class="muted">They are re-encoded server-side to 1080p + a thumbnail — originals are not kept.</span></div>
+  <input type="file" id="file-input" accept="image/*" multiple hidden>
+  <div class="row">
+    <input type="url" id="url-input" placeholder="…or paste an image URL hosted elsewhere"
+           onkeydown="if(event.key==='Enter')addUrl()">
+    <input type="text" id="url-title" placeholder="title (optional)" style="max-width:160px">
+    <button onclick="addUrl()">Add URL</button>
+  </div>
+  <div class="msg" id="add-msg"></div>
+</div>
+
+<h2>Images <span class="muted" id="count"></span></h2>
+<div class="row" style="margin-top:0">
+  <label class="muted">Filter:</label>
+  <select id="filter" onchange="loadImages()"><option value="">all collections</option></select>
+</div>
+<div class="grid" id="grid"></div>
+
+<script>
+let collections = [];
+const selectedTags = new Set();   // collection ids applied to new uploads
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    let msg = r.status;
+    try { msg = (await r.json()).error ?? r.status; } catch {}
+    document.getElementById('add-msg').textContent = `Error: ${msg}`;
+    throw new Error(msg);
+  }
+  return r;
+}
+const post = (p, b) => api(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+
+async function loadCollections() {
+  collections = await (await fetch('/api/collections')).json();
+  document.getElementById('collections').innerHTML = collections.map(c =>
+    `<span class="chip">${esc(c.name)} (${c.imageCount})
+       <a onclick="deleteCollection(${c.id}, '${esc(c.name)}')" title="delete">✕</a></span>`).join('')
+    || '<span class="muted">No collections yet — optional, but handy for per-frame shows.</span>';
+  document.getElementById('upload-tags').innerHTML = collections.map(c =>
+    `<span class="chip ${selectedTags.has(c.id) ? 'on' : ''}" onclick="toggleTag(${c.id}, this)">${esc(c.name)}</span>`).join('')
+    || '<span class="muted">(no collections defined)</span>';
+  const f = document.getElementById('filter');
+  const cur = f.value;
+  f.innerHTML = '<option value="">all collections</option>' +
+    collections.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  f.value = cur;
+}
+
+function toggleTag(id, el) {
+  if (selectedTags.has(id)) { selectedTags.delete(id); el.classList.remove('on'); }
+  else { selectedTags.add(id); el.classList.add('on'); }
+}
+
+async function addCollection() {
+  const name = document.getElementById('new-collection').value.trim();
+  if (!name) return;
+  await post('/api/collections', { name });
+  document.getElementById('new-collection').value = '';
+  refresh();
+}
+
+async function deleteCollection(id, name) {
+  if (!confirm(`Delete collection "${name}"? Images stay; only the grouping goes away.`)) return;
+  await api(`/api/collections/${id}`, { method: 'DELETE' });
+  selectedTags.delete(id);
+  refresh();
+}
+
+async function uploadFiles(files) {
+  if (!files.length) return;
+  const msg = document.getElementById('add-msg');
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+  fd.append('collectionId', [...selectedTags].join(','));
+  msg.textContent = `Uploading ${files.length} file(s)…`;
+  const r = await fetch('/api/images/upload', { method: 'POST', body: fd });
+  const res = await r.json().catch(() => ({}));
+  msg.textContent = r.ok
+    ? `Added ${res.added} image(s)` + (res.failed?.length ? ` — failed: ${res.failed.join(', ')}` : '')
+    : `Upload failed (${r.status})`;
+  refresh();
+}
+
+async function addUrl() {
+  const url = document.getElementById('url-input').value.trim();
+  if (!url) return;
+  const title = document.getElementById('url-title').value.trim() || null;
+  await post('/api/images/url', { url, title, collectionIds: [...selectedTags] });
+  document.getElementById('url-input').value = '';
+  document.getElementById('url-title').value = '';
+  document.getElementById('add-msg').textContent = 'Added.';
+  refresh();
+}
+
+async function setImageCollections(id, sel) {
+  const ids = [...sel.selectedOptions].map(o => +o.value).filter(v => v > 0);
+  await post(`/api/images/${id}/collections`, { ids });
+  loadCollections();   // membership counts changed
+}
+
+async function deleteImage(id) {
+  if (!confirm('Delete this image?')) return;
+  await api(`/api/images/${id}`, { method: 'DELETE' });
+  refresh();
+}
+
+async function loadImages() {
+  const cid = document.getElementById('filter').value;
+  const data = await (await fetch('/api/images' + (cid ? `?collectionId=${cid}` : ''))).json();
+  document.getElementById('count').textContent = `(${data.images.length})`;
+  document.getElementById('grid').innerHTML = data.images.map(i => {
+    const tags = (data.collections[i.id] ?? []);
+    const opts = collections.map(c =>
+      `<option value="${c.id}" ${tags.includes(c.name) ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+    return `
+    <div class="tile">
+      <a href="${esc(i.full)}" target="_blank"><img src="${esc(i.thumb)}" loading="lazy" alt=""></a>
+      <div class="body">
+        <div class="title" title="${esc(i.title ?? '')}">${esc(i.title ?? '(untitled)')}</div>
+        <div class="tags">${tags.map(t => `<span class="tag">${esc(t)}</span>`).join('') || '<span class="muted">no collection</span>'}</div>
+        <div class="row" style="margin-top:.2rem">
+          <select multiple size="1" onchange="setImageCollections(${i.id}, this)" title="collections">${opts}</select>
+          <button onclick="deleteImage(${i.id})">Delete</button>
+        </div>
+        <span class="muted">${i.kind === 'url' ? 'external URL' : (i.width ?? '?') + '×' + (i.height ?? '?')}</span>
+      </div>
+    </div>`;
+  }).join('') || '<p class="muted">No images yet.</p>';
+}
+
+// Drag & drop + click-to-choose
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('file-input');
+drop.onclick = () => fileInput.click();
+fileInput.onchange = () => { uploadFiles([...fileInput.files]); fileInput.value = ''; };
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => {
+  e.preventDefault(); drop.classList.remove('over');
+  uploadFiles([...e.dataTransfer.files].filter(f => f.type.startsWith('image/')));
+};
+
+async function refresh() { await loadCollections(); await loadImages(); }
+refresh();
+</script>
+</body>
+</html>

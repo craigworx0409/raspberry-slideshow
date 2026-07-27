@@ -1,0 +1,6 @@
+* text=auto
+
+# Device files are deployed to Linux — they must keep LF endings even when
+# checked out on Windows (a CRLF shebang breaks bash/python on the Pi).
+device/** text eol=lf
+*.sh text eol=lf

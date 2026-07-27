@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slideshow</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  .slide {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; opacity: 0;
+    transition: opacity var(--fade, 1200ms) ease-in-out;
+  }
+  .slide.visible { opacity: 1; }
+  #status {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    color: #dfe7ef; font-family: system-ui, sans-serif; font-size: 4vmin;
+    text-align: center; opacity: .8;
+  }
+</style>
+</head>
+<body>
+<div id="status">Loading&hellip;</div>
+<!-- Exactly two <img> elements, alternating — a Raspberry Pi 3 A+ has 512 MB
+     of RAM, so the DOM must never accumulate decoded images. -->
+<img class="slide" id="slide-a" alt="">
+<img class="slide" id="slide-b" alt="">
+
+<script>
+// URL parameters:
+//   group=name[,name2]  restrict to collections (omitted = all images)
+//   delay=12000         ms each image stays (default 12000)
+//   fade=1200           crossfade ms (default 1200)
+//   img=full|thumb      which server variant uploads use (default full = 1080p)
+//   shuffle=0           disable shuffling (default on)
+const q = new URLSearchParams(location.search);
+const delay = Math.max(2000, parseInt(q.get('delay') ?? '12000', 10) || 12000);
+const fade = Math.max(100, parseInt(q.get('fade') ?? '1200', 10) || 1200);
+const shuffle = q.get('shuffle') !== '0';
+document.documentElement.style.setProperty('--fade', fade + 'ms');
+
+const feedUrl = '/api/slideshow?img=' + encodeURIComponent(q.get('img') ?? 'full')
+  + (q.get('group') ? '&group=' + encodeURIComponent(q.get('group')) : '');
+
+const slides = [document.getElementById('slide-a'), document.getElementById('slide-b')];
+const status = document.getElementById('status');
+let list = [], order = [], pos = -1, front = 0;
+
+function reshuffle() {
+  order = list.map((_, i) => i);
+  if (shuffle)
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+}
+
+async function fetchList() {
+  try {
+    const data = await (await fetch(feedUrl)).json();
+    const fresh = data.images.map(i => i.url);
+    if (JSON.stringify(fresh) !== JSON.stringify(list)) {
+      list = fresh;
+      reshuffle();
+      pos = -1;
+    }
+    status.textContent = list.length ? '' : 'No images yet — add some in the library.';
+    status.style.display = list.length ? 'none' : 'grid';
+  } catch {
+    // Network blip: keep showing what we have; the next poll retries.
+  }
+}
+
+function nextUrl() {
+  if (!list.length) return null;
+  pos++;
+  if (pos >= order.length) { reshuffle(); pos = 0; }
+  return list[order[pos]];
+}
+
+function advance() {
+  const url = nextUrl();
+  if (url === null) return;
+  const incoming = slides[1 - front];
+  const loader = new Image();
+  loader.onload = () => {
+    incoming.src = url;
+    incoming.classList.add('visible');
+    slides[front].classList.remove('visible');
+    // Release the outgoing bitmap once the crossfade ends.
+    setTimeout(() => { if (!slides[front].classList.contains('visible')) slides[front].src = ''; }, fade + 200);
+    front = 1 - front;
+  };
+  loader.onerror = () => { /* broken URL: silently skip on the next tick */ };
+  loader.src = url;
+}
+
+(async () => {
+  await fetchList();
+  advance();
+  setInterval(advance, delay);
+  setInterval(fetchList, 5 * 60 * 1000);   // pick up library changes
+})();
+</script>
+</body>
+</html>

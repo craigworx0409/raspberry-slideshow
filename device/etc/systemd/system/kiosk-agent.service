@@ -1,0 +1,12 @@
+[Unit]
+Description=Slideshow kiosk agent (hub heartbeat + remote control)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/kiosk-agent.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
