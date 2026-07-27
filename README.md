@@ -1,5 +1,7 @@
 # raspberry-slideshow
 
+![Slideshow demo](docs/hero.gif)
+
 **A ~$50 Raspberry Pi turns any HDMI screen into a remote-controlled photo
 frame. A ~$5–20/month Linux VM runs the website that controls it.**
 
@@ -7,10 +9,19 @@ Give one to your parents. Point it at a collection of family photos. When you
 add new pictures, every frame updates itself. When something goes wrong at
 their house, you diagnose it from yours.
 
-**▶ Live demo:** [myslideshow.craig0409.com/slideshow/](https://myslideshow.craig0409.com/slideshow/)
-— exactly what a frame displays (press F11 for the full effect). Try
-[`?group=Family%20Moments&delay=5000`](https://myslideshow.craig0409.com/slideshow/?group=Family%20Moments&delay=5000)
-to see collection filtering and timing parameters.
+**▶ Live demo:** [myslideshow.craig0409.com/slideshow/?delay=4000&fade=800](https://myslideshow.craig0409.com/slideshow/?delay=4000&fade=800)
+— exactly what a frame displays (press F11 for the full effect). The player
+is steered entirely by URL parameters, so "configuring" a frame just means
+choosing its URL:
+
+| Try it | What it shows |
+|---|---|
+| [`/slideshow/`](https://myslideshow.craig0409.com/slideshow/) | every image, shuffled, calm default pace (12 s) |
+| [`?group=Family Moments`](https://myslideshow.craig0409.com/slideshow/?group=Family%20Moments) | a single named collection |
+| [`?group=Scenery,Family Moments`](https://myslideshow.craig0409.com/slideshow/?group=Scenery,Family%20Moments) | two collections blended |
+| [`?delay=4000&fade=800`](https://myslideshow.craig0409.com/slideshow/?delay=4000&fade=800) | brisk demo pacing (4 s slides, 0.8 s crossfade) |
+| [`?group=Sunsets & Water&delay=20000&fade=3000`](https://myslideshow.craig0409.com/slideshow/?group=Sunsets%20%26%20Water&delay=20000&fade=3000) | gallery mode: long holds, slow dissolves |
+| [`?img=thumb&shuffle=0`](https://myslideshow.craig0409.com/slideshow/?img=thumb&shuffle=0) | bandwidth-light thumbnails, fixed order |
 
 ```
 ┌──────────────┐  heartbeat every 45s    ┌───────────────────────────┐
