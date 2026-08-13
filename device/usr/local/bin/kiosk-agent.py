@@ -120,6 +120,36 @@ def restart_browser():
     subprocess.run(["pkill", "-f", "chromium"], check=False)
 
 
+def self_wipe():
+    """Remote "return it to me for re-imaging" wipe. Erases everything a
+    borrowed device knows — cached photos, browser sessions, saved Wi-Fi,
+    and this device's hub credentials — then powers off. Ordering matters:
+    the config is neutered FIRST so the kiosk respawn loop can only come
+    back to about:blank if it races us. Best-effort by design: physical
+    possession of the SD card still wins; this handles the "juuust in case"
+    tier, not forensics."""
+    print("WIPE command received — erasing local data and powering off", flush=True)
+    try:
+        with open(CONF, "w") as f:
+            f.write("# wiped by hub command\nHUB_URL=\nDEVICE_KEY=\nDEFAULT_URL=about:blank\n")
+    except OSError as e:
+        print(f"wipe: conf rewrite failed: {e}", flush=True)
+    try:
+        os.remove(URL_FILE)
+    except OSError:
+        pass
+    subprocess.run(["pkill", "-f", "chromium"], check=False)
+    # v2 persistent profile + v1 default profile + caches: photos, cookies, SW cache
+    subprocess.run(["rm", "-rf", "/var/lib/kiosk/profile",
+                    "/home/kiosk/.config/chromium", "/home/kiosk/.cache"], check=False)
+    forget_wifi()
+    subprocess.run(["sync"], check=False)
+    # TRIM the freed flash blocks — deleted data becomes unrecoverable on
+    # most cards rather than merely unlinked
+    subprocess.run(["fstrim", "-a"], check=False)
+    subprocess.run(["systemctl", "poweroff"], check=False)
+
+
 def forget_wifi():
     """Delete every saved Wi-Fi profile except comitup's own, so the captive
     portal hotspot takes over — used when handing the device to a recipient."""
@@ -185,6 +215,8 @@ def main():
                     subprocess.run(["systemctl", "poweroff"], check=False)
                 elif ctype == "forget-wifi":
                     forget_wifi()
+                elif ctype == "wipe":
+                    self_wipe()
         except Exception as e:  # noqa: BLE001 — keep the appliance alive no matter what
             print(f"heartbeat failed: {e}", flush=True)
 

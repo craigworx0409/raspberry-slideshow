@@ -33,11 +33,29 @@
 //   fade=1200           crossfade ms (default 1200)
 //   img=full|thumb      which server variant uploads use (default full = 1080p)
 //   shuffle=0           disable shuffling (default on)
+//   cache=0             bypass the local media cache (debugging)
+//   cachegb=N           cap the media cache at N gigabytes (default: 80% of quota)
 const q = new URLSearchParams(location.search);
 const delay = Math.max(2000, parseInt(q.get('delay') ?? '12000', 10) || 12000);
 const fade = Math.max(100, parseInt(q.get('fade') ?? '1200', 10) || 1200);
 const shuffle = q.get('shuffle') !== '0';
 document.documentElement.style.setProperty('--fade', fade + 'ms');
+
+// Immutable-media cache: images download once per device, ever. See
+// /media-sw.js. Registered at root scope so it controls this page; failures
+// are silent — the slideshow works identically without it.
+if ('serviceWorker' in navigator && q.get('cache') !== '0') {
+  navigator.serviceWorker.register('/media-sw.js', { scope: '/' })
+    .then(async reg => {
+      // Ask the browser never to evict our origin under storage pressure —
+      // granted for kiosk/installed profiles; our own janitor is the evictor.
+      if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
+      const gb = parseFloat(q.get('cachegb'));
+      if (gb > 0) (reg.active || reg.waiting || reg.installing)
+        ?.postMessage({ type: 'config', capBytes: Math.floor(gb * 1e9) });
+    })
+    .catch(() => {});
+}
 
 const feedUrl = '/api/slideshow?img=' + encodeURIComponent(q.get('img') ?? 'full')
   + (q.get('group') ? '&group=' + encodeURIComponent(q.get('group')) : '');
