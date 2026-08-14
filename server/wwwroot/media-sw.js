@@ -71,6 +71,20 @@ async function cacheFirst(req) {
           .then(() => putMeta(req.url, { size: len, lastAccess: Date.now() }))
           .then(() => maybeJanitor())
           .catch(() => {});      // quota/IO failure: stream-through still succeeded
+      } else if (len === 0) {
+        // Chunked/no-Content-Length response (e.g. a proxied blob stream):
+        // buffer a clone to learn the size, then cache from the buffer. The
+        // original streams to the page untouched.
+        resp.clone().blob()
+          .then(async blob => {
+            if (!blob.size || blob.size > MAX_ENTRY_BYTES) return;
+            const headers = new Headers(resp.headers);
+            headers.set('content-length', String(blob.size));
+            await cache.put(req.url, new Response(blob, { status: 200, headers }));
+            await putMeta(req.url, { size: blob.size, lastAccess: Date.now() });
+            maybeJanitor();
+          })
+          .catch(() => {});
       }
     }
     return resp;
