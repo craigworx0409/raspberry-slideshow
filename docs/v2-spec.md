@@ -173,6 +173,28 @@ kill for a family library). Ship the player/server changes first; the fleet
 inherits the SW cache on its next reload with **no device-side deploy**;
 the `--incognito` removal + profile flag is one small device update after.
 
+**Field lessons from the actual rollout** — the backport shipped, "verified",
+and then cached *zero bytes* for a day. Two silent failure modes, worth
+designing against anywhere this worker is reused:
+
+1. **The SW script must be reachable without redirects.** Auth or lockdown
+   middleware that 302s unlisted paths will bounce `/media-sw.js` itself,
+   and a redirected worker script is a hard `SecurityError` — registration
+   fails forever, invisibly if the register call swallows errors. Allowlist
+   the worker script wherever slideshow pages are allowlisted, and test with
+   the *kiosk's* session, not a normal login.
+2. **Responses without `Content-Length` never qualified for caching.** A
+   server that streams (chunked transfer) defeats a size-guard that trusts
+   the header. Fixed both ways: the server now sets `Content-Length`
+   explicitly, and the worker buffers a clone to measure when the header is
+   absent (see `cacheFirst` in `media-sw.js`).
+
+Verification that actually verifies: don't trust profile-directory growth
+(a fresh Chromium profile downloads ~100 MB of its own components — it looks
+exactly like a cache filling). Check `Default/Service Worker/CacheStorage`
+size and the presence of the worker's IndexedDB metadata store, or ask the
+page directly via `caches.open('media-v1')` → `keys().length`.
+
 ---
 
 ## Part 2 — Hardware (wall-frame build)
