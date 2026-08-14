@@ -227,7 +227,68 @@ specified. (v1 3A+ frames: nearly identical.)
   a Pi Zero 2 W. Costs *more* than the LCD build at 13.3″; the 7.3″ is the
   economical desk-tier entry.
 
-## Part 4 — Open questions for v2.1
+## Part 4 — v2.1: remote self-update (specced)
+
+Motivation, proven the easy way: the caching backport rolled to four frames
+in minutes *only because they all happened to be on the home Wi-Fi*. Once
+frames are gifted and scattered, SSH is gone forever — the hub command
+channel is the only path that still exists. Self-update turns "drive over
+with a keyboard" into "click a button."
+
+### Design
+
+**Bundle.** The deploy script packs the repo's `device/` tree into
+`device-bundle.tar.gz` at hub-deploy time, embedding a `manifest.json`:
+`{ version: <git short hash>, files: [{path, mode, sha256}], restart: "agent"|"session"|"both" }`.
+The hub serves it at `GET /api/device-bundle` (X-Api-Key auth, same as
+heartbeat) with the version and bundle SHA-256 in headers. Explicitly **not**
+in the bundle: `/etc/kiosk.conf` (per-device identity/secrets) and anything
+under `/var/lib/kiosk` (state and cache).
+
+**Command.** `commands` table gains a `payload` column. Admin page gets
+per-device **Update** (and later "Update all") showing current → available
+version; the queued command carries `{version, sha256}`. Idempotent: a
+device already on `version` acks and does nothing.
+
+**Agent execution order** (the careful part — the agent is replacing itself):
+
+1. Download bundle to tmp; verify SHA-256 against the command payload
+   (delivered over authenticated HTTPS — the hub is already fully trusted;
+   Ed25519 bundle signing is noted as hardening if the trust model ever
+   changes).
+2. Extract to a staging dir; verify each file's manifest hash.
+3. **Pre-flight the new agent before installing it:**
+   `python3 -m py_compile` on the staged agent, plus a `--selftest` run
+   (parse config, compute device id, exit 0). A bundle that fails
+   pre-flight is discarded and reported; nothing was touched.
+4. Install: current files copied to `<name>.prev`, staged files installed
+   with manifest modes.
+5. Write `/var/lib/kiosk/agent-version`.
+6. Restart per manifest: `session` → the safe `pkill` of the kiosk loop
+   (splash blink); `agent` → `systemd-run --on-active=2 systemctl restart
+   kiosk-agent` (detached, so the agent's own death can't orphan the
+   restart); `both` → session first, then agent.
+
+**Observability.** The heartbeat health payload gains `agentVersion`; the
+admin page shows a version chip per device, highlighted when it trails the
+hub's bundle. A failed update is visible as a version that never advances —
+the hub never auto-retries (an admin re-click is the retry, preserving the
+staged-rollout habit).
+
+**Failure posture.** Pre-flight catches bad bundles before they land;
+`.prev` copies support a manual SSH rollback at your house. The residual
+risk — a bundle that passes pre-flight but breaks at runtime on a remote
+device — is accepted for the family fleet and mitigated by staging rollouts
+one device first (today's proven habit). The nightly reboot and
+`Restart=always` remain the last-resort self-healers.
+
+### Rollout plan
+
+Backport-friendly: nothing in it requires v2 hardware. Build order —
+bundle packing in deploy script → hub endpoint + payload column + admin
+button → agent update handler → stage on one home frame → fleet.
+
+## Part 5 — Other v2.1 candidates
 
 - Optional server-side ffmpeg transcode of video uploads to a known-good
   1080p H.264 profile.
