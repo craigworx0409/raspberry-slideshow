@@ -218,7 +218,16 @@ specified. (v1 3A+ frames: nearly identical.)
 
 ---
 
-## Part 3 — Open questions for v2.1
+## Part 3 — Parked variants
+
+- **E-ink frame** (Spectra 6 only) — researched and deliberately deferred;
+  the whole investigation lives in [eink-variant/](eink-variant/README.md).
+  Different product character (print-like stills every 15 min+, no motion,
+  zero glare/glow), reuses the entire server stack via a small SPI agent on
+  a Pi Zero 2 W. Costs *more* than the LCD build at 13.3″; the 7.3″ is the
+  economical desk-tier entry.
+
+## Part 4 — Open questions for v2.1
 
 - Optional server-side ffmpeg transcode of video uploads to a known-good
   1080p H.264 profile.
