@@ -24,6 +24,8 @@
   button { padding: .45rem .9rem; border-radius: 6px; border: 1px solid #8886; background: #8881; cursor: pointer; }
   button:hover { background: #8883; }
   button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  button.danger { border-color: #c33; color: #c33; }
+  button.danger:hover { background: #c33; color: #fff; }
   .meta { font-size: .75rem; opacity: .6; margin-top: .5rem; }
   .health { font-size: .78rem; opacity: .8; margin-top: .5rem; font-variant-numeric: tabular-nums; }
   .health .warn { color: #d90; font-weight: 600; }
@@ -135,6 +137,22 @@ async function unassignOwner(id) {
   refresh();
 }
 
+// Remote self-delete: erases cached photos, sessions, Wi-Fi credentials and
+// the device key, then powers off. Recovery = physically re-image the card.
+async function wipeDevice(id) {
+  const name = document.getElementById('name-' + id)?.textContent || id;
+  const typed = prompt(
+    `PERMANENT WIPE of "${name}"\n\n` +
+    'Erases all cached photos, logins, saved Wi-Fi, and the device key, then powers it off.\n' +
+    'The device cannot come back online — recovery requires re-imaging the SD card in person.\n\n' +
+    `Type the device name (${name}) to confirm:`);
+  if (typed === null) return;
+  if (typed.trim() !== name) { alert('Name did not match — wipe cancelled.'); return; }
+  await post(`/api/devices/${id}/command`, { type: 'wipe' });
+  alert('Wipe queued. It executes on the device\'s next check-in (~45s), after which it goes permanently offline.');
+  refresh();
+}
+
 async function forget(id) {
   if (!confirm('Forget this device? It will reappear if it checks in again.')) return;
   await api(`/api/devices/${id}`, { method: 'DELETE' });
@@ -174,6 +192,7 @@ function createCard(d) {
       <button onclick="sendCommand('${d.id}','poweroff')">Power off</button>
       <button onclick="sendCommand('${d.id}','forget-wifi')">Forget Wi-Fi</button>
       <button onclick="forget('${d.id}')">Forget device</button>
+      <button class="danger" onclick="wipeDevice('${d.id}')">Wipe</button>
     </div>
     <div class="health" id="health-${d.id}"></div>
     <div class="meta" id="meta-${d.id}"></div>

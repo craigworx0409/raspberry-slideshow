@@ -175,12 +175,15 @@ app.MapGet("/health", () => Results.Text("ok"));
 
 // ---------- media ----------
 
-app.MapGet("/media/{file}", (string file) =>
+app.MapGet("/media/{file}", (string file, HttpContext ctx) =>
 {
     // Defend against traversal: only a bare filename from our own media dir.
     if (file.Contains('/') || file.Contains('\\') || file.Contains("..")) return Results.NotFound();
     var path = Path.Combine(mediaPath, file);
     if (!System.IO.File.Exists(path)) return Results.NotFound();
+    // Media files are content-named and never change after creation — tell
+    // every cache layer (browser HTTP cache, the media service worker) so.
+    ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
     return Results.File(path, "image/jpeg", enableRangeProcessing: true);
 });
 
@@ -421,7 +424,7 @@ app.MapPost("/api/devices/{id}/url", async (string id, HttpContext ctx) =>
 app.MapPost("/api/devices/{id}/command", async (string id, HttpContext ctx) =>
 {
     var req = await ctx.Request.ReadFromJsonAsync<QueueCommand>();
-    if (req?.Type is not ("reload" or "reboot" or "poweroff" or "forget-wifi")) return Results.BadRequest();
+    if (req?.Type is not ("reload" or "reboot" or "poweroff" or "forget-wifi" or "wipe")) return Results.BadRequest();
     using var con = Open();
     Exec(con, "INSERT INTO commands(device_id, type, created_at) VALUES ($id, $type, $now)",
         ("$id", id), ("$type", req.Type), ("$now", DateTime.UtcNow.ToString("o")));
