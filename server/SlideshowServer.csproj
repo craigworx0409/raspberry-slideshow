@@ -13,7 +13,7 @@
     <!-- Pin the transitive native SQLite past GHSA-2m69-gcr7-jv3q -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
     <!-- Resizing uploads to 1080p/thumbnail variants -->
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.*" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.2.*" />
   </ItemGroup>
 
 </Project>
